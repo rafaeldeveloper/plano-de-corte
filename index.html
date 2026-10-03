@@ -1,0 +1,617 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<title>Plano de Corte de Chapas</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@75..100,400..800&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+/* Bancada: painel de entrada à esquerda (chapa + lista de peças), prancheta de resultados à direita */
+:root {
+  --bg: #eef0ec; --surface: #fbfcfa; --fg: #1b221e; --muted: #5a665f; --line: #d3d9d3;
+  --accent: #0d6857; --accent-ink: #ffffff; --cut: #c2410c; --warn: #9a5b00; --warn-bg: #fdf1dc; --bad: #b42318;
+  --p0: #ead8b4; --p1: #cfe0c6; --p2: #c9dcea; --p3: #ecd0cc; --p4: #dcd1ea; --p5: #e6dcc0;
+  --hatch: #c3cac3; --sheet: #f6f7f4;
+  --f-display: "Archivo", "Helvetica Neue", Arial, sans-serif;
+  --f-body: "Archivo", "Helvetica Neue", Arial, sans-serif;
+  --f-mono: "IBM Plex Mono", ui-monospace, Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #121614; --surface: #1a1f1c; --fg: #e3e8e4; --muted: #95a199; --line: #2d3530;
+  --accent: #4cb9a3; --accent-ink: #08201b; --cut: #fb8a4c; --warn: #f0b75a; --warn-bg: #33270f; --bad: #f27a6f;
+  --p0: #5b4a2c; --p1: #3c5235; --p2: #2f4a5e; --p3: #5c3833; --p4: #46395e; --p5: #514a30;
+  --hatch: #353e38; --sheet: #161b18; color-scheme: dark;
+} }
+:root[data-theme="dark"] {
+  --bg: #121614; --surface: #1a1f1c; --fg: #e3e8e4; --muted: #95a199; --line: #2d3530;
+  --accent: #4cb9a3; --accent-ink: #08201b; --cut: #fb8a4c; --warn: #f0b75a; --warn-bg: #33270f; --bad: #f27a6f;
+  --p0: #5b4a2c; --p1: #3c5235; --p2: #2f4a5e; --p3: #5c3833; --p4: #46395e; --p5: #514a30;
+  --hatch: #353e38; --sheet: #161b18; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { margin: 0; }
+[hidden] { display: none !important; }
+body { background: var(--bg); color: var(--fg); font-family: var(--f-body); font-size: 14px; line-height: 1.45; }
+.wrap { padding-inline: 16px; padding-block: 20px 40px; max-width: 1440px; margin: 0 auto; display: grid; gap: 20px; }
+header.top { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 8px 24px; }
+h1 { font-family: var(--f-display); font-stretch: 78%; font-weight: 800; font-size: 30px; letter-spacing: -0.01em; margin: 0; text-wrap: balance; }
+h1 small { font-weight: 500; font-stretch: 100%; font-size: 14px; color: var(--muted); margin-left: 10px; letter-spacing: 0; }
+.layout { display: grid; grid-template-columns: minmax(0, 400px) minmax(0, 1fr); gap: 20px; align-items: start; }
+@media (max-width: 900px) { .layout { grid-template-columns: minmax(0, 1fr); } }
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 16px; display: grid; gap: 14px; min-width: 0; }
+.panel h2, .results h2 { font-family: var(--f-display); font-stretch: 85%; font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; margin: 0; color: var(--muted); }
+.fields { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 12px; }
+.fields .full { grid-column: 1 / -1; }
+label.f { display: grid; gap: 4px; font-size: 12px; color: var(--muted); }
+input[type=number], input[type=text], select, textarea {
+  font: inherit; color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: 4px; padding: 6px 8px; width: 100%; min-width: 0;
+}
+input[type=number] { font-family: var(--f-mono); font-variant-numeric: tabular-nums; }
+input:focus-visible, select:focus-visible, textarea:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.unit { position: relative; }
+.unit input { padding-right: 34px; }
+.unit::after { content: "mm"; position: absolute; right: 8px; top: 50%; transform: translateY(-50%); font-size: 11px; color: var(--muted); pointer-events: none; }
+.seg { display: grid; grid-template-columns: 1fr 1fr; border: 1px solid var(--line); border-radius: 4px; overflow: hidden; }
+.seg button { border: 0; background: var(--bg); color: var(--fg); padding: 7px 8px; font: inherit; font-size: 13px; cursor: pointer; }
+.seg button[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); font-weight: 600; }
+.hint { font-size: 12px; color: var(--muted); margin: 0; }
+button.btn { font: inherit; font-size: 13px; border: 1px solid var(--line); background: var(--bg); color: var(--fg); border-radius: 4px; padding: 6px 10px; cursor: pointer; }
+button.btn:hover { border-color: var(--accent); }
+button.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 600; }
+.row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.drop { border: 1.5px dashed var(--line); border-radius: 6px; padding: 14px; text-align: center; display: grid; gap: 6px; cursor: pointer; }
+.drop.over { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 8%, transparent); }
+.drop strong { font-size: 14px; }
+.status { font-size: 12px; padding: 6px 8px; border-radius: 4px; background: var(--bg); }
+.status.err { color: var(--bad); }
+.ptable-wrap { overflow-x: auto; max-height: 460px; overflow-y: auto; border: 1px solid var(--line); border-radius: 4px; }
+table.pt { border-collapse: collapse; width: 100%; font-size: 13px; }
+table.pt th { position: sticky; top: 0; background: var(--surface); text-align: left; font-weight: 600; font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; padding: 6px 4px; border-bottom: 1px solid var(--line); z-index: 1; }
+table.pt td { padding: 3px 4px; border-bottom: 1px solid var(--line); }
+table.pt input[type=text], table.pt input[type=number] { padding: 4px 6px; background: transparent; border-color: transparent; }
+table.pt input:hover { border-color: var(--line); }
+table.pt .n input { width: 64px; }
+table.pt .q input { width: 48px; }
+.sw { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
+.x { border: 0; background: none; color: var(--muted); cursor: pointer; font-size: 16px; line-height: 1; padding: 2px 6px; }
+.x:hover { color: var(--bad); }
+textarea { font-family: var(--f-mono); font-size: 12px; min-height: 120px; resize: vertical; }
+
+.results { display: grid; gap: 16px; min-width: 0; }
+.summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+.kpi { background: var(--surface); padding: 12px 14px; display: grid; gap: 2px; }
+.kpi .v { font-family: var(--f-mono); font-size: 24px; font-weight: 500; font-variant-numeric: tabular-nums; }
+.kpi .l { font-size: 12px; color: var(--muted); }
+.kpi .s { font-size: 11px; color: var(--muted); font-family: var(--f-mono); }
+.warnbox { background: var(--warn-bg); color: var(--warn); border-radius: 6px; padding: 10px 12px; font-size: 13px; }
+.warnbox ul { margin: 4px 0 0; padding-left: 18px; }
+.tools { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; align-items: center; }
+.tools .row label { font-size: 13px; display: inline-flex; gap: 6px; align-items: center; }
+.sheet { background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 14px; display: grid; gap: 10px; min-width: 0; }
+.sheet-h { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 6px 16px; align-items: baseline; }
+.sheet-h h3 { margin: 0; font-family: var(--f-display); font-stretch: 80%; font-size: 20px; font-weight: 700; }
+.sheet-h .meta { font-family: var(--f-mono); font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.pill { font-family: var(--f-mono); font-size: 12px; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--line); }
+.pill.good { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 50%, transparent); }
+.pill.mid { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 50%, transparent); }
+.pill.low { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 50%, transparent); }
+.svgbox { overflow-x: auto; }
+.svgbox svg { width: 100%; height: auto; display: block; min-width: 320px; }
+svg text { font-family: var(--f-body); fill: var(--fg); }
+svg .dim { font-family: var(--f-mono); fill: var(--muted); }
+svg .pc { stroke: var(--fg); stroke-opacity: .55; }
+svg .p0 { fill: var(--p0); } svg .p1 { fill: var(--p1); } svg .p2 { fill: var(--p2); }
+svg .p3 { fill: var(--p3); } svg .p4 { fill: var(--p4); } svg .p5 { fill: var(--p5); }
+svg .board { fill: var(--sheet); stroke: var(--fg); }
+svg .hl { stroke: var(--hatch); }
+svg .trim { fill: var(--hatch); opacity: .55; }
+svg .cutl { stroke: var(--cut); }
+svg .cutn { fill: var(--cut); font-family: var(--f-mono); font-weight: 500; }
+svg .ret { fill: none; stroke: var(--accent); stroke-dasharray: 6 4; }
+svg .rett { fill: var(--accent); font-family: var(--f-mono); }
+details summary { cursor: pointer; font-size: 13px; color: var(--muted); }
+.lists { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; margin-top: 8px; }
+.lists > div { min-width: 0; overflow-x: auto; }
+table.lt { border-collapse: collapse; width: 100%; font-size: 12px; font-variant-numeric: tabular-nums; }
+table.lt th { text-align: left; color: var(--muted); font-weight: 600; padding: 4px 6px; border-bottom: 1px solid var(--line); }
+table.lt td { padding: 3px 6px; border-bottom: 1px solid var(--line); font-family: var(--f-mono); }
+table.lt td.t { font-family: var(--f-body); }
+.empty { padding: 40px 16px; text-align: center; color: var(--muted); border: 1.5px dashed var(--line); border-radius: 6px; }
+.strategy { font-size: 12px; color: var(--muted); }
+@media (prefers-reduced-motion: no-preference) { .sheet { animation: in .25s ease-out both; } @keyframes in { from { transform: translateY(4px); } to { transform: none; } } }
+</style>
+
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <h1>Plano de Corte <small>otimização de corte de chapas a partir da lista de medidas</small></h1>
+    <span class="strategy" id="strategy"></span>
+  </header>
+
+  <div class="layout">
+    <aside class="panel" aria-label="Entrada">
+      <h2>Chapa (matriz)</h2>
+      <div class="fields">
+        <label class="f full">Modelo
+          <select id="preset">
+            <option value="2750x1850">MDF 2750 × 1850</option>
+            <option value="2750x1840">MDP 2750 × 1840</option>
+            <option value="2440x1220">Compensado 2440 × 1220</option>
+            <option value="2200x1600">Compensado 2200 × 1600</option>
+            <option value="3000x1500">Chapa de aço 3000 × 1500</option>
+            <option value="3210x2250">Vidro jumbo 3210 × 2250</option>
+            <option value="custom">Personalizada</option>
+          </select>
+        </label>
+        <label class="f">Comprimento<span class="unit"><input type="number" id="sC" min="1" step="1"></span></label>
+        <label class="f">Largura<span class="unit"><input type="number" id="sL" min="1" step="1"></span></label>
+        <label class="f">Espessura da serra<span class="unit"><input type="number" id="sK" min="0" step="0.1"></span></label>
+        <label class="f">Refilo por borda<span class="unit"><input type="number" id="sT" min="0" step="1"></span></label>
+        <div class="f full" style="display:grid;gap:4px">
+          <span style="font-size:12px;color:var(--muted)">Tipo de corte</span>
+          <div class="seg" role="group" aria-label="Tipo de corte">
+            <button type="button" id="mG" aria-pressed="true">Guilhotina (serra)</button>
+            <button type="button" id="mF" aria-pressed="false">Livre (CNC / laser)</button>
+          </div>
+        </div>
+        <label class="f full">Retalho aproveitável a partir de<span class="unit"><input type="number" id="sR" min="0" step="10"></span></label>
+      </div>
+      <p class="hint">Guilhotina: cada corte atravessa a peça de ponta a ponta, como na esquadrejadeira ou seccionadora. Gera a sequência de cortes.</p>
+
+      <h2>Peças</h2>
+      <div class="drop" id="drop" tabindex="0" role="button" aria-label="Importar arquivo de medidas">
+        <strong>Importar arquivo de medidas</strong>
+        <span class="hint">.xlsx, .xls, .ods, .csv ou .txt · arraste aqui ou clique</span>
+        <span class="hint">Colunas reconhecidas: Peça, Comprimento, Largura, Quantidade, Girar ou Veio</span>
+        <input type="file" id="file" accept=".xlsx,.xls,.ods,.csv,.txt,.tsv" hidden>
+      </div>
+      <div class="status" id="status" hidden></div>
+      <div class="row">
+        <button class="btn" type="button" id="pasteBtn">Colar da planilha</button>
+        <button class="btn" type="button" id="sampleBtn">Carregar exemplo</button>
+        <button class="btn" type="button" id="addBtn">+ Peça</button>
+        <button class="btn" type="button" id="clearBtn">Limpar</button>
+      </div>
+      <div id="pasteBox" hidden style="display:grid;gap:8px">
+        <textarea id="pasteTa" placeholder="Lateral&#9;720&#9;560&#9;6&#10;Prateleira&#9;764&#9;520&#9;4"></textarea>
+        <div class="row">
+          <button class="btn primary" type="button" id="pasteReplace">Substituir lista</button>
+          <button class="btn" type="button" id="pasteAppend">Adicionar à lista</button>
+        </div>
+      </div>
+      <div id="clearConfirm" class="row" hidden>
+        <span class="hint">Apagar todas as peças?</span>
+        <button class="btn primary" type="button" id="clearYes">Apagar</button>
+        <button class="btn" type="button" id="clearNo">Cancelar</button>
+      </div>
+      <div class="ptable-wrap">
+        <table class="pt">
+          <thead><tr><th></th><th>Peça</th><th>Comp.</th><th>Larg.</th><th>Qtd</th><th title="Pode girar 90° (sem veio)">Gira</th><th></th></tr></thead>
+          <tbody id="ptBody"></tbody>
+        </table>
+      </div>
+      <p class="hint">Comprimento acompanha o comprimento da chapa (sentido do veio). Desmarque “Gira” nas peças com veio ou padrão.</p>
+    </aside>
+
+    <section class="results" aria-label="Resultado">
+      <div class="summary" id="summary"></div>
+      <div id="warns"></div>
+      <div class="tools">
+        <div class="row">
+          <label><input type="checkbox" id="showCuts" checked> Sequência de cortes</label>
+          <label><input type="checkbox" id="showRet" checked> Retalhos</label>
+        </div>
+        <div class="row">
+          <span class="hint" id="copyMsg"></span>
+          <button class="btn" type="button" id="copyCsv">Copiar plano (CSV)</button>
+        </div>
+      </div>
+      <div id="sheets" style="display:grid;gap:16px"></div>
+    </section>
+  </div>
+</div>
+
+<script>
+const SAMPLE = [
+  { n: "Lateral", c: 720, l: 560, q: 6, r: true },
+  { n: "Base", c: 764, l: 560, q: 3, r: true },
+  { n: "Tampo", c: 800, l: 560, q: 2, r: true },
+  { n: "Prateleira", c: 764, l: 520, q: 4, r: true },
+  { n: "Porta", c: 716, l: 396, q: 6, r: false },
+  { n: "Travessa", c: 764, l: 100, q: 6, r: true },
+  { n: "Frente gaveta", c: 796, l: 180, q: 4, r: false },
+  { n: "Lateral gaveta", c: 500, l: 150, q: 8, r: true },
+];
+const S = { C: 2750, L: 1850, K: 4, T: 10, R: 300, mode: "g", pieces: SAMPLE.map(p => ({ ...p })), sample: true };
+const $ = id => document.getElementById(id);
+const fmt = (n, d = 0) => n.toLocaleString("pt-BR", { minimumFractionDigits: d, maximumFractionDigits: d });
+
+try { const saved = JSON.parse(localStorage.getItem("plano-corte") || "null"); if (saved && Array.isArray(saved.pieces)) Object.assign(S, saved); } catch (e) {}
+function save() { try { localStorage.setItem("plano-corte", JSON.stringify(S)); } catch (e) {} }
+
+/* ---------- parsing ---------- */
+const norm = s => String(s ?? "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().trim();
+function num(v) {
+  if (typeof v === "number") return v;
+  let s = String(v ?? "").replace(/mm|\s/gi, "");
+  if (/^\d{1,3}(\.\d{3})+(,\d+)?$/.test(s)) s = s.replace(/\./g, "").replace(",", ".");
+  else s = s.replace(",", ".");
+  const n = parseFloat(s);
+  return Number.isFinite(n) ? n : NaN;
+}
+const truthy = v => ["sim", "s", "yes", "y", "1", "true", "x", "verdadeiro", "v"].includes(norm(v)) || v === true || v === 1;
+
+function parseText(txt) {
+  const lines = txt.split(/\r?\n/).filter(l => l.trim());
+  if (!lines.length) return [];
+  const first = lines.slice(0, 5).join("\n");
+  const cnt = d => (first.match(new RegExp(d === "\t" ? "\t" : "\\" + d, "g")) || []).length;
+  const delim = ["\t", ";", ","].sort((a, b) => cnt(b) - cnt(a))[0];
+  return lines.map(l => l.split(delim).map(c => c.trim().replace(/^"(.*)"$/, "$1")));
+}
+
+function rowsToPieces(rows) {
+  rows = rows.filter(r => r && r.some(c => String(c ?? "").trim() !== ""));
+  if (!rows.length) throw new Error("O arquivo está vazio.");
+  const numericCount = r => r.filter(c => !isNaN(num(c))).length;
+  let start = 0, map = null, scale = 1, notes = [];
+  const hdr = rows[0].map(norm);
+  if (numericCount(rows[0]) < 2 && rows.length > 1) {
+    start = 1;
+    map = {};
+    hdr.forEach((h, i) => {
+      if (map.n == null && /pec|nome|descr|item|ref|codigo|cod/.test(h)) map.n = i;
+      else if (map.c == null && /^comp|^c$|^c\b|length|^alt|^a$|^h$|^x$|^dim ?1/.test(h)) map.c = i;
+      else if (map.l == null && /^larg|^l$|^l\b|width|^w$|^y$|^dim ?2/.test(h)) map.l = i;
+      else if (map.q == null && /^q|quant|qtd|qty|^un/.test(h)) map.q = i;
+      else if (map.v == null && /veio|sentido|fibra|grain/.test(h)) map.v = i;
+      else if (map.g == null && /gir|rot/.test(h)) map.g = i;
+    });
+    if (hdr.some(h => /\(cm\)|\bcm\b/.test(h))) { scale = 10; notes.push("medidas em cm convertidas para mm"); }
+    else if (hdr.some(h => /\(m\)|\bm\b|metro/.test(h))) { scale = 1000; notes.push("medidas em metros convertidas para mm"); }
+    if (map.c == null || map.l == null) map = null;
+  }
+  if (!map) {
+    const sample = rows.slice(start, start + 20);
+    const cols = Math.max(...sample.map(r => r.length));
+    const numCols = [], textCols = [];
+    for (let i = 0; i < cols; i++) {
+      const vals = sample.map(r => r[i]).filter(v => String(v ?? "").trim() !== "");
+      (vals.length && vals.filter(v => !isNaN(num(v))).length >= vals.length * 0.8 ? numCols : textCols).push(i);
+    }
+    if (numCols.length < 2) throw new Error("Não encontrei duas colunas numéricas (comprimento e largura).");
+    map = { n: textCols[0], c: numCols[0], l: numCols[1], q: numCols[2] };
+    notes.push("sem cabeçalho reconhecido: usei as colunas pela ordem (comprimento, largura, quantidade)");
+  }
+  const out = [], skipped = [];
+  rows.slice(start).forEach((r, idx) => {
+    const c = num(r[map.c]) * scale, l = num(r[map.l]) * scale;
+    let q = map.q != null ? num(r[map.q]) : 1;
+    if (!Number.isFinite(q) || q <= 0) q = 1;
+    if (!(c > 0 && l > 0)) { skipped.push(idx + start + 1); return; }
+    let rot = true;
+    if (map.v != null) rot = !truthy(r[map.v]);
+    else if (map.g != null) rot = truthy(r[map.g]);
+    const name = map.n != null && String(r[map.n] ?? "").trim() ? String(r[map.n]).trim() : "Peça " + (out.length + 1);
+    out.push({ n: name, c: Math.round(c * 10) / 10, l: Math.round(l * 10) / 10, q: Math.round(q), r: rot });
+  });
+  if (!out.length) throw new Error("Nenhuma linha com comprimento e largura válidos.");
+  if (skipped.length) notes.push(`${skipped.length} linha(s) ignorada(s) sem medida válida: ${skipped.slice(0, 8).join(", ")}${skipped.length > 8 ? "…" : ""}`);
+  return { pieces: out, notes };
+}
+
+/* ---------- packing ---------- */
+const lt = (a, b) => a[0] < b[0] || (a[0] === b[0] && a[1] < b[1]);
+function orients(p, K) {
+  const o = [{ w: p.c + K, h: p.l + K, r: false }];
+  if (p.r && p.c !== p.l) o.push({ w: p.l + K, h: p.c + K, r: true });
+  return o;
+}
+function fitScore(f, w, h, heur) {
+  const dw = f.w - w, dh = f.h - h;
+  if (heur === "baf") return [f.w * f.h - w * h, Math.min(dw, dh)];
+  if (heur === "bssf") return [Math.min(dw, dh), Math.max(dw, dh)];
+  if (heur === "blsf") return [Math.max(dw, dh), Math.min(dw, dh)];
+  return [f.y + h, f.x];
+}
+function choose(sheets, p, K, heur) {
+  let best = null;
+  for (const s of sheets) s.free.forEach((f, fi) => {
+    for (const o of orients(p, K)) if (o.w <= f.w && o.h <= f.h) {
+      const sc = fitScore(f, o.w, o.h, heur);
+      if (!best || lt(sc, best.sc)) best = { s, fi, o, sc };
+    }
+  });
+  return best;
+}
+function packGuil(items, W, H, K, heur, split) {
+  const sheets = [];
+  for (const p of items) {
+    let b = choose(sheets, p, K, heur);
+    if (!b) { sheets.push({ free: [{ x: 0, y: 0, w: W, h: H }], placed: [], cuts: [] }); b = choose(sheets, p, K, heur); }
+    const { s, fi, o } = b, f = s.free[fi];
+    s.free.splice(fi, 1);
+    const pw = o.w - K, ph = o.h - K, lw = f.w - o.w, lh = f.h - o.h;
+    s.placed.push({ p, x: f.x, y: f.y, w: pw, h: ph, r: o.r });
+    let horiz;
+    if (split === "sas") horiz = lw <= lh;
+    else if (split === "las") horiz = lw > lh;
+    else if (split === "min") horiz = o.w * lh > lw * o.h;
+    else horiz = o.w * lh <= lw * o.h;
+    if (horiz) {
+      if (f.h - K > ph) s.cuts.push({ d: "h", at: f.y + ph, a: f.x, b: f.x + f.w - K });
+      if (f.w - K > pw) s.cuts.push({ d: "v", at: f.x + pw, a: f.y, b: f.y + ph });
+      s.free.push({ x: f.x, y: f.y + o.h, w: f.w, h: lh }, { x: f.x + o.w, y: f.y, w: lw, h: o.h });
+    } else {
+      if (f.w - K > pw) s.cuts.push({ d: "v", at: f.x + pw, a: f.y, b: f.y + f.h - K });
+      if (f.h - K > ph) s.cuts.push({ d: "h", at: f.y + ph, a: f.x, b: f.x + pw });
+      s.free.push({ x: f.x + o.w, y: f.y, w: lw, h: f.h }, { x: f.x, y: f.y + o.h, w: o.w, h: lh });
+    }
+    s.free = s.free.filter(r => r.w > K && r.h > K);
+  }
+  return sheets;
+}
+function packFree(items, W, H, K, heur) {
+  const sheets = [];
+  for (const p of items) {
+    let b = choose(sheets, p, K, heur);
+    if (!b) { sheets.push({ free: [{ x: 0, y: 0, w: W, h: H }], placed: [], cuts: [] }); b = choose(sheets, p, K, heur); }
+    const { s, fi, o } = b, f = s.free[fi];
+    const n = { x: f.x, y: f.y, w: o.w, h: o.h };
+    s.placed.push({ p, x: n.x, y: n.y, w: o.w - K, h: o.h - K, r: o.r });
+    const next = [];
+    for (const r of s.free) {
+      if (n.x >= r.x + r.w || n.x + n.w <= r.x || n.y >= r.y + r.h || n.y + n.h <= r.y) { next.push(r); continue; }
+      if (n.x > r.x) next.push({ x: r.x, y: r.y, w: n.x - r.x, h: r.h });
+      if (n.x + n.w < r.x + r.w) next.push({ x: n.x + n.w, y: r.y, w: r.x + r.w - n.x - n.w, h: r.h });
+      if (n.y > r.y) next.push({ x: r.x, y: r.y, w: r.w, h: n.y - r.y });
+      if (n.y + n.h < r.y + r.h) next.push({ x: r.x, y: n.y + n.h, w: r.w, h: r.y + r.h - n.y - n.h });
+    }
+    s.free = next.filter((a, i) => a.w > K && a.h > K && !next.some((b2, j) => j !== i &&
+      a.x >= b2.x && a.y >= b2.y && a.x + a.w <= b2.x + b2.w && a.y + a.h <= b2.y + b2.h && (j < i || a.w !== b2.w || a.h !== b2.h || a.x !== b2.x || a.y !== b2.y)));
+  }
+  return sheets;
+}
+const SORTS = {
+  "área": (a, b) => b.c * b.l - a.c * a.l,
+  "maior lado": (a, b) => Math.max(b.c, b.l) - Math.max(a.c, a.l) || b.c * b.l - a.c * a.l,
+  "comprimento": (a, b) => b.c - a.c || b.l - a.l,
+  "largura": (a, b) => b.l - a.l || b.c - a.c,
+  "perímetro": (a, b) => b.c + b.l - a.c - a.l,
+};
+function optimize() {
+  const K = +S.K || 0, T = +S.T || 0;
+  const W = S.C - 2 * T + K, H = S.L - 2 * T + K;
+  const items = [], unfit = [];
+  S.pieces.forEach((p, i) => {
+    if (!(p.c > 0 && p.l > 0 && p.q > 0)) return;
+    const fits = (p.c + K <= W && p.l + K <= H) || (p.r && p.l + K <= W && p.c + K <= H);
+    if (!fits) { unfit.push(p); return; }
+    for (let k = 0; k < p.q; k++) items.push({ ...p, i, k: k + 1 });
+  });
+  if (W <= K || H <= K) return { error: "A chapa ficou sem área útil depois do refilo." };
+  let best = null;
+  const area = S.C * S.L;
+  const consider = (sheets, label) => {
+    const utils = sheets.map(s => s.placed.reduce((a, q) => a + q.w * q.h, 0) / area);
+    const sc = [sheets.length, -utils.reduce((a, u) => a + u * u, 0)];
+    if (!best || lt(sc, best.sc)) best = { sc, sheets, utils, label };
+  };
+  for (const [sn, fn] of Object.entries(SORTS)) {
+    const sorted = items.slice().sort(fn);
+    if (S.mode === "g") {
+      for (const h of ["baf", "bssf", "blsf"]) for (const sp of ["sas", "las", "min", "max"]) consider(packGuil(sorted, W, H, K, h, sp), sn);
+    } else {
+      for (const h of ["baf", "bssf", "blsf", "bl"]) consider(packFree(sorted, W, H, K, h), sn);
+    }
+  }
+  if (!best) best = { sheets: [], utils: [], label: "" };
+  best.unfit = unfit; best.K = K; best.T = T; best.count = items.length;
+  // put fullest sheets first
+  const order = best.sheets.map((s, i) => i).sort((a, b) => best.utils[b] - best.utils[a]);
+  best.sheets = order.map(i => best.sheets[i]); best.utils = order.map(i => best.utils[i]);
+  return best;
+}
+
+/* ---------- render: inputs ---------- */
+function syncSheetInputs() {
+  $("sC").value = S.C; $("sL").value = S.L; $("sK").value = S.K; $("sT").value = S.T; $("sR").value = S.R;
+  const key = S.C + "x" + S.L;
+  $("preset").value = [...$("preset").options].some(o => o.value === key) ? key : "custom";
+  $("mG").setAttribute("aria-pressed", S.mode === "g"); $("mF").setAttribute("aria-pressed", S.mode === "f");
+}
+function esc(s) { return String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }
+function renderTable() {
+  $("ptBody").innerHTML = S.pieces.map((p, i) => `<tr data-i="${i}">
+    <td><span class="sw" style="background:var(--p${i % 6})"></span></td>
+    <td><input type="text" id="pn${i}" data-k="n" value="${esc(p.n)}" aria-label="Nome"></td>
+    <td class="n"><input type="number" id="pc${i}" data-k="c" min="1" value="${p.c}" aria-label="Comprimento"></td>
+    <td class="n"><input type="number" id="pl${i}" data-k="l" min="1" value="${p.l}" aria-label="Largura"></td>
+    <td class="q"><input type="number" id="pq${i}" data-k="q" min="0" value="${p.q}" aria-label="Quantidade"></td>
+    <td><input type="checkbox" id="pr${i}" data-k="r" ${p.r ? "checked" : ""} aria-label="Pode girar"></td>
+    <td><button class="x" type="button" data-del="${i}" aria-label="Remover">×</button></td></tr>`).join("");
+}
+
+/* ---------- render: results ---------- */
+function pillClass(u) { return u >= 0.8 ? "good" : u >= 0.6 ? "mid" : "low"; }
+function sheetSVG(s, idx, res) {
+  const { K, T } = res, C = S.C, L = S.L;
+  const M = Math.max(C, L), pad = M * 0.045, fsD = M * 0.017;
+  let g = `<svg viewBox="${-pad} ${-pad} ${C + pad * 1.4} ${L + pad * 1.4}" role="img" aria-label="Chapa ${idx + 1}">`;
+  g += `<defs><pattern id="h${idx}" width="${M * 0.012}" height="${M * 0.012}" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="${M * 0.012}" class="hl" stroke-width="${M * 0.0025}"/></pattern></defs>`;
+  g += `<rect x="0" y="0" width="${C}" height="${L}" fill="url(#h${idx})"/>`;
+  g += `<rect x="0" y="0" width="${C}" height="${L}" class="board" fill-opacity="0" stroke-width="1.5" vector-effect="non-scaling-stroke"/>`;
+  if (T > 0) g += `<path class="trim" fill-rule="evenodd" d="M0 0H${C}V${L}H0Z M${T} ${T}V${L - T}H${C - T}V${T}Z"/>`;
+  g += `<text class="dim" x="${C / 2}" y="${-pad * 0.35}" text-anchor="middle" font-size="${fsD}">${fmt(C)}</text>`;
+  g += `<text class="dim" x="${-pad * 0.35}" y="${L / 2}" text-anchor="middle" font-size="${fsD}" transform="rotate(-90 ${-pad * 0.35} ${L / 2})">${fmt(L)}</text>`;
+  for (const q of s.placed) {
+    const x = T + q.x, y = T + q.y, w = q.w, h = q.h;
+    g += `<g><title>${esc(q.p.n)} ${fmt(q.p.c)} × ${fmt(q.p.l)}${q.r ? " (girada)" : ""}</title><rect x="${x}" y="${y}" width="${w}" height="${h}" class="pc p${q.p.i % 6}" stroke-width="1" vector-effect="non-scaling-stroke"/>`;
+    const name = q.p.n + (q.r ? " ↻" : ""), dims = `${fmt(q.p.c)}×${fmt(q.p.l)}`;
+    const vertical = h > w * 1.6;
+    const len = vertical ? h : w, thick = vertical ? w : h;
+    const fs = Math.min(M * 0.026, thick * 0.3, len / (Math.max(name.length, dims.length) * 0.58));
+    if (fs >= M * 0.008) {
+      const cx = x + w / 2, cy = y + h / 2, tr = vertical ? ` transform="rotate(-90 ${cx} ${cy})"` : "";
+      g += `<text x="${cx}" y="${cy - fs * 0.15}" text-anchor="middle" font-size="${fs}" font-weight="600"${tr}>${esc(name)}</text>`;
+      g += `<text class="dim" x="${cx}" y="${cy + fs * 0.95}" text-anchor="middle" font-size="${fs * 0.82}"${tr}>${dims}</text>`;
+    }
+    g += `</g>`;
+  }
+  if ($("showRet").checked && S.mode === "g") for (const r of retalhos(s, res)) {
+    g += `<rect class="ret" x="${T + r.x}" y="${T + r.y}" width="${r.w}" height="${r.h}" stroke-width="1.5" vector-effect="non-scaling-stroke"/>`;
+    const fs = Math.min(M * 0.018, r.h * 0.25, r.w / 9);
+    if (fs > M * 0.007) g += `<text class="rett" x="${T + r.x + r.w / 2}" y="${T + r.y + r.h / 2 + fs * 0.35}" text-anchor="middle" font-size="${fs}">${fmt(r.w)}×${fmt(r.h)}</text>`;
+  }
+  if ($("showCuts").checked && S.mode === "g") s.cuts.forEach((c, i) => {
+    const m = T + c.at + K / 2;
+    const [x1, y1, x2, y2] = c.d === "h" ? [T + c.a, m, T + c.b, m] : [m, T + c.a, m, T + c.b];
+    g += `<line class="cutl" x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke-width="1.6" vector-effect="non-scaling-stroke"/>`;
+    const fs = M * 0.013, mx = (x1 + x2) / 2, my = (y1 + y2) / 2;
+    g += `<text class="cutn" x="${c.d === "h" ? mx : mx + fs * 0.4}" y="${c.d === "h" ? my - fs * 0.35 : my}" font-size="${fs}" text-anchor="${c.d === "h" ? "middle" : "start"}">${i + 1}</text>`;
+  });
+  return g + `</svg>`;
+}
+function retalhos(s, res) {
+  const min = +S.R || 0;
+  if (!min) return [];
+  return s.free.map(f => ({ x: f.x, y: f.y, w: f.w - res.K, h: f.h - res.K })).filter(r => Math.min(r.w, r.h) >= min);
+}
+function cutLen(s, res) { return s.cuts.reduce((a, c) => a + (c.b - c.a), 0) + (res.T > 0 ? 2 * (S.C + S.L) : 0); }
+
+let last = null;
+function render() {
+  const res = optimize();
+  last = res;
+  if (res.error) {
+    $("summary").innerHTML = ""; $("sheets").innerHTML = `<div class="empty">${res.error}</div>`; $("warns").innerHTML = ""; return;
+  }
+  const n = res.sheets.length, area = S.C * S.L;
+  const used = res.sheets.reduce((a, s) => a + s.placed.reduce((b, q) => b + q.w * q.h, 0), 0);
+  const total = n * area;
+  const cutM = res.sheets.reduce((a, s) => a + cutLen(s, res), 0) / 1000;
+  const nCuts = res.sheets.reduce((a, s) => a + s.cuts.length, 0);
+  const lastU = n ? Math.min(...res.utils) : 0;
+  $("summary").innerHTML = `
+    <div class="kpi"><span class="l">Chapas</span><span class="v">${n}</span><span class="s">${fmt(S.C)} × ${fmt(S.L)} mm</span></div>
+    <div class="kpi"><span class="l">Aproveitamento</span><span class="v">${n ? fmt(used / total * 100, 1) : "0"}%</span><span class="s">${fmt(used / 1e6, 2)} de ${fmt(total / 1e6, 2)} m²</span></div>
+    <div class="kpi"><span class="l">Peças</span><span class="v">${res.count}</span><span class="s">${S.pieces.length} tipos</span></div>
+    <div class="kpi"><span class="l">Corte linear</span><span class="v">${S.mode === "g" ? fmt(cutM, 1) + " m" : "—"}</span><span class="s">${S.mode === "g" ? nCuts + " cortes" + (res.T ? " + refilo" : "") : "trajetória da CNC"}</span></div>
+    <div class="kpi"><span class="l">Chapa menos cheia</span><span class="v">${n ? fmt(lastU * 100, 1) : "0"}%</span><span class="s">sobra concentrada nela</span></div>`;
+  const w = [];
+  if (S.sample) w.push("Lista de exemplo: módulo de cozinha em MDF 18 mm. Importe seu arquivo de medidas para substituir.");
+  if (res.unfit.length) w.push(`Não cabem na chapa (considerando refilo e serra): ${res.unfit.map(p => `${esc(p.n)} ${fmt(p.c)}×${fmt(p.l)}${p.r ? "" : " sem girar"}`).join("; ")}.`);
+  $("warns").innerHTML = w.length ? `<div class="warnbox">${w.map(x => `<div>${x}</div>`).join("")}</div>` : "";
+  $("strategy").textContent = n ? `Melhor de ${S.mode === "g" ? 60 : 20} combinações · ordenação por ${res.label}` : "";
+  if (!n) { $("sheets").innerHTML = `<div class="empty">Adicione peças ou importe um arquivo de medidas para gerar o plano.</div>`; return; }
+  $("sheets").innerHTML = res.sheets.map((s, i) => {
+    const u = res.utils[i];
+    const groups = {};
+    s.placed.forEach(q => { const k = q.p.i; (groups[k] ||= { p: q.p, n: 0, r: 0 }).n++; if (q.r) groups[k].r++; });
+    const rets = S.mode === "g" ? retalhos(s, res) : [];
+    const cutsRows = s.cuts.map((c, j) => `<tr><td>${j + 1}</td><td class="t">${c.d === "h" ? "Transversal (↔)" : "Longitudinal (↕)"}</td><td>${fmt(res.T + c.at)}</td><td>${fmt(c.b - c.a)}</td></tr>`).join("");
+    return `<article class="sheet">
+      <div class="sheet-h"><h3>Chapa ${i + 1} <span class="meta">de ${n}</span></h3>
+        <div class="row"><span class="meta">${s.placed.length} peças${S.mode === "g" ? " · " + s.cuts.length + " cortes · " + fmt(cutLen(s, res) / 1000, 1) + " m" : ""}</span><span class="pill ${pillClass(u)}">${fmt(u * 100, 1)}% aproveitada</span></div></div>
+      <div class="svgbox">${sheetSVG(s, i, res)}</div>
+      <details><summary>Lista de peças${S.mode === "g" ? ", sequência de cortes" : ""}${rets.length ? " e retalhos" : ""}</summary>
+        <div class="lists">
+          <div><table class="lt"><thead><tr><th>Peça</th><th>C × L</th><th>Qtd</th><th>Giradas</th></tr></thead><tbody>
+            ${Object.values(groups).map(gp => `<tr><td class="t"><span class="sw" style="background:var(--p${gp.p.i % 6})"></span> ${esc(gp.p.n)}</td><td>${fmt(gp.p.c)} × ${fmt(gp.p.l)}</td><td>${gp.n}</td><td>${gp.r || ""}</td></tr>`).join("")}
+          </tbody></table></div>
+          ${S.mode === "g" ? `<div><table class="lt"><thead><tr><th>#</th><th>Direção</th><th>Posição</th><th>Extensão</th></tr></thead><tbody>
+            ${res.T ? `<tr><td>0</td><td class="t" colspan="3">Refilo de ${fmt(res.T)} mm nas 4 bordas</td></tr>` : ""}${cutsRows}</tbody></table>
+            <p class="hint">Posição medida a partir da borda original da chapa (lado de referência da serra). Cortes numerados na ordem em que liberam as peças.</p></div>` : ""}
+          ${rets.length ? `<div><table class="lt"><thead><tr><th>Retalho</th><th>C × L</th></tr></thead><tbody>${rets.map((r, j) => `<tr><td>R${j + 1}</td><td>${fmt(r.w)} × ${fmt(r.h)}</td></tr>`).join("")}</tbody></table></div>` : ""}
+        </div></details></article>`;
+  }).join("");
+}
+let tmr;
+function schedule() { clearTimeout(tmr); tmr = setTimeout(() => { render(); save(); }, 200); }
+
+/* ---------- events ---------- */
+$("preset").addEventListener("change", e => {
+  if (e.target.value === "custom") return;
+  const [c, l] = e.target.value.split("x").map(Number); S.C = c; S.L = l; syncSheetInputs(); schedule();
+});
+[["sC", "C"], ["sL", "L"], ["sK", "K"], ["sT", "T"], ["sR", "R"]].forEach(([id, k]) => $(id).addEventListener("input", e => {
+  const v = parseFloat(e.target.value); if (!Number.isFinite(v) || v < 0) return;
+  S[k] = v; if (k === "C" || k === "L") { const key = S.C + "x" + S.L; $("preset").value = [...$("preset").options].some(o => o.value === key) ? key : "custom"; }
+  schedule();
+}));
+$("mG").onclick = () => { S.mode = "g"; syncSheetInputs(); schedule(); };
+$("mF").onclick = () => { S.mode = "f"; syncSheetInputs(); schedule(); };
+$("showCuts").onchange = render; $("showRet").onchange = render;
+$("ptBody").addEventListener("input", e => {
+  const tr = e.target.closest("tr"); if (!tr) return;
+  const p = S.pieces[+tr.dataset.i], k = e.target.dataset.k;
+  if (k === "n") p.n = e.target.value;
+  else if (k === "r") p.r = e.target.checked;
+  else { const v = parseFloat(e.target.value); p[k] = Number.isFinite(v) ? v : 0; }
+  schedule();
+});
+$("ptBody").addEventListener("change", e => { if (e.target.dataset.k === "r") { S.pieces[+e.target.closest("tr").dataset.i].r = e.target.checked; schedule(); } });
+$("ptBody").addEventListener("click", e => {
+  const d = e.target.dataset.del; if (d == null) return;
+  S.pieces.splice(+d, 1); renderTable(); schedule();
+});
+$("addBtn").onclick = () => { S.pieces.push({ n: "Peça " + (S.pieces.length + 1), c: 600, l: 400, q: 1, r: true }); renderTable(); schedule(); const i = S.pieces.length - 1; $("pn" + i).focus(); $("pn" + i).select(); };
+$("sampleBtn").onclick = () => { S.pieces = SAMPLE.map(p => ({ ...p })); S.sample = true; renderTable(); status(""); schedule(); };
+$("clearBtn").onclick = () => { $("clearConfirm").hidden = false; };
+$("clearNo").onclick = () => { $("clearConfirm").hidden = true; };
+$("clearYes").onclick = () => { S.pieces = []; S.sample = false; $("clearConfirm").hidden = true; renderTable(); schedule(); };
+$("pasteBtn").onclick = () => { $("pasteBox").hidden = !$("pasteBox").hidden; if (!$("pasteBox").hidden) $("pasteTa").focus(); };
+function importRows(rows, src, append) {
+  try {
+    const { pieces, notes } = rowsToPieces(rows);
+    S.pieces = append && !S.sample ? S.pieces.concat(pieces) : pieces; S.sample = false;
+    const qty = pieces.reduce((a, p) => a + p.q, 0);
+    status(`${pieces.length} tipos de peça (${qty} unidades) importados de ${src}.${notes.length ? " " + notes.join("; ") + "." : ""}`);
+    renderTable(); schedule();
+  } catch (err) { status(err.message + " Confira se o arquivo tem colunas de comprimento e largura em mm.", true); }
+}
+$("pasteReplace").onclick = () => { importRows(parseText($("pasteTa").value), "texto colado", false); };
+$("pasteAppend").onclick = () => { importRows(parseText($("pasteTa").value), "texto colado", true); };
+function status(msg, err) { const el = $("status"); el.hidden = !msg; el.textContent = msg; el.classList.toggle("err", !!err); }
+async function readFile(file) {
+  const ext = file.name.split(".").pop().toLowerCase();
+  try {
+    if (["xlsx", "xls", "ods", "xlsm"].includes(ext)) {
+      if (typeof XLSX === "undefined") throw new Error("O leitor de planilhas não carregou. Salve como .csv e tente de novo.");
+      const wb = XLSX.read(await file.arrayBuffer(), { type: "array" });
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      importRows(XLSX.utils.sheet_to_json(ws, { header: 1, raw: true, defval: "" }), file.name, false);
+    } else {
+      let txt = await file.text();
+      if (txt.includes("\uFFFD")) txt = new TextDecoder("windows-1252").decode(await file.arrayBuffer());
+      importRows(parseText(txt), file.name, false);
+    }
+  } catch (err) { status(err.message, true); }
+}
+const drop = $("drop");
+drop.onclick = () => $("file").click();
+drop.onkeydown = e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); $("file").click(); } };
+$("file").onchange = e => { if (e.target.files[0]) readFile(e.target.files[0]); e.target.value = ""; };
+["dragenter", "dragover"].forEach(t => drop.addEventListener(t, e => { e.preventDefault(); drop.classList.add("over"); }));
+["dragleave", "drop"].forEach(t => drop.addEventListener(t, e => { e.preventDefault(); drop.classList.remove("over"); }));
+drop.addEventListener("drop", e => { const f = e.dataTransfer.files[0]; if (f) readFile(f); });
+$("copyCsv").onclick = () => {
+  if (!last || !last.sheets) return;
+  const lines = ["Chapa;Peça;Comprimento;Largura;X;Y;Girada"];
+  last.sheets.forEach((s, i) => s.placed.forEach(q => lines.push([i + 1, q.p.n, q.p.c, q.p.l, last.T + q.x, last.T + q.y, q.r ? "sim" : "não"].join(";"))));
+  const txt = lines.join("\n");
+  const done = m => { $("copyMsg").textContent = m; setTimeout(() => $("copyMsg").textContent = "", 2500); };
+  navigator.clipboard.writeText(txt).then(() => done(`${lines.length - 1} linhas copiadas`)).catch(() => {
+    $("pasteBox").hidden = false; $("pasteTa").value = txt; $("pasteTa").select(); done("Selecionei o CSV na caixa de texto; copie com Ctrl+C");
+  });
+};
+
+syncSheetInputs(); renderTable(); render();
+</script>
+
+</body>
+</html>
